@@ -41,33 +41,55 @@ async function fetchContributionsForAccount(
   since.setDate(since.getDate() - days);
   const sinceStr = toLocalDateStr(since);
 
-  const searchRes = await fetch(
-    `${GITHUB_API}/search/commits?q=author:${githubLogin}+author-date:>=${sinceStr}&per_page=100&sort=author-date&order=desc`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-      },
-      cache: "no-store",
-    }
-  );
+  let allItems: Array<{ commit: { author: { date: string } } }> = [];
+  let totalCount = 0;
+  let page = 1;
 
-  if (!searchRes.ok) {
-    throw new Error("GitHub API error");
+  while (page <= 10) {
+    const searchRes = await fetch(
+      `${GITHUB_API}/search/commits?q=author:${githubLogin}+author-date:>=${sinceStr}&per_page=100&page=${page}&sort=author-date&order=desc`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+        },
+        cache: "no-store",
+      }
+    );
+
+    if (!searchRes.ok) {
+      throw new Error("GitHub API error");
+    }
+
+    const data = (await searchRes.json()) as {
+      total_count: number;
+      items: Array<{ commit: { author: { date: string } } }>;
+    };
+
+    if (page === 1) {
+      totalCount = data.total_count;
+    }
+
+    allItems = allItems.concat(data.items);
+
+    if (data.items.length < 100) {
+      break;
+    }
+
+    if (allItems.length >= 1000 || allItems.length >= totalCount) {
+      break;
+    }
+
+    page += 1;
   }
 
-  const data = (await searchRes.json()) as {
-    total_count: number;
-    items: Array<{ commit: { author: { date: string } } }>;
-  };
-
   const commitsByDay: Record<string, number> = {};
-  for (const item of data.items) {
+  for (const item of allItems) {
     const date = item.commit.author.date.slice(0, 10);
     commitsByDay[date] = (commitsByDay[date] ?? 0) + 1;
   }
 
-  return { days, total: data.total_count, data: commitsByDay };
+  return { days, total: totalCount, data: commitsByDay };
 }
 
 export async function GET(req: NextRequest) {
