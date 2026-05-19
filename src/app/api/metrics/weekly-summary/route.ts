@@ -49,13 +49,34 @@ async function fetchCommitSearch(
   const query = encodeURIComponent(
     `author:${githubLogin} committer-date:${start}..${end}`
   );
+  const perPage = 100;
+  const maxSearchResults = 1000;
+  const items: CommitSearchResponse["items"] = [];
+  let totalCount = 0;
 
-  // TODO: paginate for high-activity users
-  return fetchGitHubJson<CommitSearchResponse>(
-    `${GITHUB_API}/search/commits?q=${query}&per_page=100`,
-    accessToken,
-    "application/vnd.github+json"
-  );
+  for (let page = 1; page <= maxSearchResults / perPage; page += 1) {
+    const data = await fetchGitHubJson<CommitSearchResponse>(
+      `${GITHUB_API}/search/commits?q=${query}&per_page=${perPage}&page=${page}`,
+      accessToken,
+      "application/vnd.github+json"
+    );
+
+    totalCount = data.total_count;
+    items.push(...data.items);
+
+    if (
+      data.items.length < perPage ||
+      items.length >= totalCount ||
+      items.length >= maxSearchResults
+    ) {
+      break;
+    }
+  }
+
+  return {
+    total_count: Math.min(totalCount, items.length, maxSearchResults),
+    items,
+  };
 }
 
 async function fetchPullRequestsOpenedThisWeek(
